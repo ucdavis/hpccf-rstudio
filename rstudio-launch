@@ -1,0 +1,127 @@
+#!/bin/bash -eu
+
+#
+# Set up password authentication
+#
+
+if [[ ! -x /usr/bin/xkcdpass ]]; then
+    echo "Please wait 2 hours for the random password program to be installed."
+    exit 1
+fi
+
+export RSTUDIO_PASSWORD=$(/usr/bin/xkcdpass --delimiter=- | tr -d '\n')
+
+#
+# Set up configurations, if they don't exist
+#
+
+DB_CONF="$HOME/.config/rstudio-database.conf"
+CACHE_DIR="$HOME/.cache/rstudio-server"
+export RSTUDIO_CONFIG_DIR=$HOME/.config/rstudio-server
+
+[[ ! -d $CACHE_DIR ]] && mkdir $CACHE_DIR
+[[ ! -d $RSTUDIO_CONFIG_DIR ]] && mkdir -p $RSTUDIO_CONFIG_DIR
+
+if [[ ! -e $DB_CONF ]]; then
+    cp $RSTUDIO_SERVER_HOME/extras/conf/database.conf $DB_CONF
+    perl -pi -e "s@#directory=/var/lib/rstudio-server@directory=$RSTUDIO_CONFIG_DIR@" $DB_CONF
+fi
+
+
+#
+# Find an open port for forwarding and notify user of necessary commands.
+# TODO: potential race condition on shared node?
+#
+
+read LOWERPORT UPPERPORT < /proc/sys/net/ipv4/ip_local_port_range
+
+port="$(shuf -i $LOWERPORT-$UPPERPORT -n 1)"
+while :; do
+    netstat -taln | egrep ":$port.*LISTEN" || break
+    port="$(shuf -i $LOWERPORT-$UPPERPORT -n 1)"
+done
+
+cat <<EOF
+
+You need to use SSH tunneling to allow your computer to communicate with
+RStudio Server on the cluster.
+
+Run the following command in a new terminal on your computer:
+
+    ssh -L${port}:${HOSTNAME}:${port} $USER@farm.hpc.ucdavis.edu
+
+Then, on your computer, navigate your browser to:
+
+    URL: http://localhost:${port}
+    Username: $USER
+    Password: $RSTUDIO_PASSWORD
+
+EOF
+
+#
+# Launch process differs when we're in a conda environment.
+# The conda r-base package exports RSTUDIO_WHICH_R
+
+if [[ -v CONDA_PREFIX && -v RSTUDIO_WHICH_R ]]
+then
+    echo "NOTE: \$CONDA_PREFIX and \$RSTUDIO_WHICH_R are set, so assuming we are  "
+    echo "   running in a conda environment. If you did not intend this, deactivate "
+    echo "   your active conda environment and relaunch rstudio-server. "
+    echo "   Using R at: ${RSTUDIO_WHICH_R}."
+    echo
+
+    # Check for lingering rsession processes. If a lingering rsession was launched with incorrect
+    # prefix and LD_LIBRARY_PATH, library imports will break. So, if it looks like it was from
+    # a different conda environment, kill it.
+    RSESSION_PID=$(pgrep -u "$USER" rsession || true) # without the "|| true", it will fail here when there is no match, becasue of the set -e
+    if [[ $RSESSION_PID ]]
+    then
+        echo "WARNING: Found lingering rsession (pid: ${RSESSION_PID})"
+        if [[ $(lsof -p `pgrep rsession` 2>/dev/null | grep "$CONDA_PREFIX/lib/R/lib/libR.so") ]]
+        then
+            echo "   rsession appears to be from the current conda environment (${CONDA_PREFIX})."
+            echo "   If you have problems with library imports, kill this server (CTRL+c), run \"kill ${RSESSION_PID}\" to kill the rsession, and re-launch."
+            echo "   NOTE: killing the rsession will clear your command history and variable definitions."
+            echo
+        else
+            echo "   rsession appears to be from a different environment."
+            echo "   To avoid library import problems, kill the rsession with "kill ${RSESSION_PID}" and re-launch."
+            echo "   NOTE: killing the rsession will clear your command history and variable definitions."
+            exit 1
+        fi
+    else
+        echo "Found no lingering rsession; continuing to launch rserver."
+        echo
+    fi
+
+    rserver \
+        --www-port=$port \
+        --database-config-file=$DB_CONF \
+        --auth-none 0 \
+        --auth-pam-helper $RSTUDIO_SERVER_HOME/bin/rstudio_auth.sh \
+        --server-user=$USER \
+        --secure-cookie-key-file=$CACHE_DIR/secure-cookie-key \
+        --server-pid-file=$CACHE_DIR/rstudio-server.pid \
+        --server-data-dir=$CACHE_DIR \
+        --server-daemonize=0 \
+        --server-working-dir=$HOME \
+        --rsession-which-r=$RSTUDIO_WHICH_R \
+        --rsession-ld-library-path=$CONDA_PREFIX/lib \
+        "$@"
+else
+    echo "NOTE: Using R at `which R`."
+    echo
+
+    rserver \
+        --www-port=$port \
+        --database-config-file=$DB_CONF \
+        --auth-none 0 \
+        --auth-pam-helper $RSTUDIO_SERVER_HOME/bin/rstudio_auth.sh \
+        --server-user=$USER \
+        --secure-cookie-key-file=$CACHE_DIR/secure-cookie-key \
+        --server-pid-file=$CACHE_DIR/rstudio-server.pid \
+        --server-data-dir=$CACHE_DIR \
+        --server-daemonize=0 \
+        --server-working-dir=$HOME \
+        "$@"
+fi
