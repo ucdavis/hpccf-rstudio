@@ -23,7 +23,7 @@ export RSTUDIO_CONFIG_DIR=$HOME/.config/rstudio-server
 [[ ! -d $RSTUDIO_CONFIG_DIR ]] && mkdir -p $RSTUDIO_CONFIG_DIR
 
 if [[ ! -e $DB_CONF ]]; then
-    cp $RSTUDIO_SERVER_HOME/extras/conf/database.conf $DB_CONF
+    cp $RSTUDIO_ROOT/extras/conf/database.conf $DB_CONF
     perl -pi -e "s@#directory=/var/lib/rstudio-server@directory=$RSTUDIO_CONFIG_DIR@" $DB_CONF
 fi
 
@@ -64,10 +64,12 @@ EOF
 
 if [[ -v CONDA_PREFIX && -v RSTUDIO_WHICH_R ]]
 then
-    echo "NOTE: \$CONDA_PREFIX and \$RSTUDIO_WHICH_R are set, so assuming we are  "
-    echo "   running in a conda environment. If you did not intend this, deactivate "
-    echo "   your active conda environment and relaunch rstudio-server. "
-    echo "   Using R at: ${RSTUDIO_WHICH_R}."
+    #echo "NOTE: \$CONDA_PREFIX and \$RSTUDIO_WHICH_R are set, so assuming we are  "
+    #echo "   running in a conda environment. If you did not intend this, deactivate "
+    #echo "   your active conda environment and relaunch rstudio-server. "
+    #echo "   Using R at: ${RSTUDIO_WHICH_R}."
+    #echo
+    echo "NOTE: Using R at `which R`."
     echo
 
     # Check for lingering rsession processes. If a lingering rsession was launched with incorrect
@@ -98,7 +100,7 @@ then
         --www-port=$port \
         --database-config-file=$DB_CONF \
         --auth-none 0 \
-        --auth-pam-helper $RSTUDIO_SERVER_HOME/bin/rstudio_auth.sh \
+        --auth-pam-helper $RSTUDIO_SERVER_UTILS/rstudio_auth.sh \
         --server-user=$USER \
         --secure-cookie-key-file=$CACHE_DIR/secure-cookie-key \
         --server-pid-file=$CACHE_DIR/rstudio-server.pid \
@@ -116,7 +118,7 @@ else
         --www-port=$port \
         --database-config-file=$DB_CONF \
         --auth-none 0 \
-        --auth-pam-helper $RSTUDIO_SERVER_HOME/bin/rstudio_auth.sh \
+        --auth-pam-helper $RSTUDIO_SERVER_UTILS/rstudio_auth.sh \
         --server-user=$USER \
         --secure-cookie-key-file=$CACHE_DIR/secure-cookie-key \
         --server-pid-file=$CACHE_DIR/rstudio-server.pid \
