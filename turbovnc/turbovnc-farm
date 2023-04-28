@@ -1,0 +1,72 @@
+#! /bin/bash
+
+set -u
+
+if [[ $USER == "root" ]]; then
+   echo "$0: do not run as root."
+   exit 1
+fi
+
+HOSTNAME=$(hostname)
+
+(rm -f /tmp/.X*-lock /tmp/.X11-unix/*) >/dev/null 2>&1 || true
+
+if [[ -d /run/user/$(id -u)/ ]]; then
+    rm -rf /run/user/$(id -u)/* 1>/dev/null 2>&1 || true
+fi
+
+# Use these for TurboVNC >= 3
+
+# Killing Xvnc process ID NNNNN
+#export TVNC_VGL=0
+
+export TVNC_WM=xfce
+
+xfce4_config_dir=~/.config/xfce4/terminal
+terminalrc_file="$xfce4_config_dir/terminalrc"
+
+mkdir -p $xfce4_config_dir
+
+if [[ ! -f $terminalrc_file ]]; then
+    echo "[Configuration]" > $terminalrc_file
+fi
+
+# Some settings need to be forced because user's shell is nologin-on-compute-nodes
+settings=(
+    RunCustomCommand=TRUE
+    CustomCommand=/bin/bash
+    CommandLoginShell=TRUE
+)
+
+for s in $settings; do
+    if ! grep -q $s $terminalrc_file; then
+        echo $s >> $terminalrc_file
+    fi
+done
+
+rm ~/.vnc/*.log
+
+touch ~/.vnc/passwd
+
+vncserver -fg -otp "$@" </dev/null &
+
+sleep 5
+
+vnc_logfile=$(ls -1tr ~/.vnc/*.log | tail -1)
+
+vnc_port=$(egrep 'Listening for VNC connections on TCP port' $vnc_logfile | awk '{print $NF}')
+
+cat <<EOF
+
+Now, you need to use SSH port forwarding to tunnel VNC traffic. Run
+this command on your desktop/laptop:
+
+ssh -L 5911:${HOSTNAME}:${vnc_port} $USER@farm.hpc.ucdavis.edu
+
+Then, also on your desktop/laptop, run the TurboVNC viewer and use \`:11' as the VNC server
+
+TurboVNC has launched an XFCE desktop, press Control-c to kill it and all your desktop processes.
+EOF
+
+
+wait
