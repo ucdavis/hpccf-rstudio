@@ -1,0 +1,41 @@
+#! /bin/bash
+
+set -eu
+
+read LOWERPORT UPPERPORT < /proc/sys/net/ipv4/ip_local_port_range
+
+while :; do
+  port="$(shuf -i $LOWERPORT-$UPPERPORT -n 1)"
+  netstat -taln | egrep ":$port.*LISTEN" || break
+done
+
+token=$(/usr/bin/xkcdpass --delimiter=-)
+
+cat <<EOF
+
+vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv NOTE vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
+You need to use SSH tunneling to port forward from your personal
+laptop/desktop to Jupyter Lab running on this Farm compute nodes ($HOSTNAME).
+
+Run the following command in a new terminal on your personal desktop/laptop:
+
+ssh -L${port}:${HOSTNAME}:${port} $USER@farm.hpc.ucdavis.edu
+
+Then, load the following URL in your browser: http://localhost:${port}/
+
+If prompted to login, use: $token
+
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+EOF
+
+rm -f ~/.jupyter/logs || true
+
+echo "Launching Jupyter Notebook, press control-c twice to cancel. Logs are in: ~/.jupyter/logs"
+jupyter notebook --no-browser \
+        --ip=${HOSTNAME} \
+        --port=${port} \
+        --NotebookApp.token="$token" \
+        --NotebookApp.custom_display_url="http://${HOSTNAME}:${port}" \
+        --log-level=CRITICAL --JupyterApp.log_level=CRITICAL --ServerApp.log_level=CRITICAL --Application.log_level=CRITICAL \
+        >& ~/.jupyter/logs
